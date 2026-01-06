@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/filter.css">
+<link rel="stylesheet" href="css/nouislider.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title>Catálogo de Locações e Serviços</title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/leaflet-svg-shape-markers.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="js/tailDT.js"></script>
+<script src="js/nouislider.min.js"></script>
+<script src="js/wNumb.js"></script>
+        <script src="data/LocalidadesdoRioGrande_2.js"></script>
+        <script src="data/Servios_3.js"></script>
+        <script src="data/Locaes_4.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+
+            if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
+              highlightLayer.setStyle({
+                color: 'rgba(255, 255, 0, 1.00)',
+              });
+            } else {
+              highlightLayer.setStyle({
+                fillColor: 'rgba(255, 255, 0, 1.00)',
+                fillOpacity: 1
+              });
+            }
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[-32.061274090024966,-52.1518803407874],[-32.02259854173664,-52.048442709089294]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var title = new L.Control({'position':'topleft'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>Catálogo de Locações e Serviços</h2>';
+        };
+        title.addTo(map);
+        var abstract = new L.Control({'position':'topleft'});
+        abstract.onAdd = function (map) {
+            this._div = L.DomUtil.create('div',
+            'leaflet-control abstract');
+            this._div.id = 'abstract'
+                this._div.setAttribute("onmouseenter", "abstract.show()");
+                this._div.setAttribute("onmouseleave", "abstract.hide()");
+                this.hide();
+                return this._div;
+            };
+            abstract.hide = function () {
+                this._div.classList.remove("abstractUncollapsed");
+                this._div.classList.add("abstract");
+                this._div.innerHTML = 'i'
+            }
+            abstract.show = function () {
+                this._div.classList.remove("abstract");
+                this._div.classList.add("abstractUncollapsed");
+                this._div.innerHTML = 'O presente WebSIG é resultado do Trabalho de Conclusão de Curso intitulado "Catalogando Locações: proposta de WebSIG para uma film commission no município do Rio Grande/RS", apresentado ao curso de Geoprocessamento do Campus Rio Grande do Instituto Federal de Educação, Ciência e Tecnologia do Rio Grande do Sul como requisito parcial para a obtenção do título de Técnico em Geoprocessamento.A ferramenta tem como objetivo geral reunir locais, serviços e profissionais do município, servindo como um catálogo de locações e serviços para fundamentar a implementação de uma futura film commission local. Além de atuar como um instrumento para a atração de produções audiovisuais, o WebSIG visa promover o potencial cênico da região e contribuir para a valorização cultural e paisagística do município do Rio Grande.';
+        };
+        abstract.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_GoogleSatellite_0');
+        map.getPane('pane_GoogleSatellite_0').style.zIndex = 400;
+        var layer_GoogleSatellite_0 = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            pane: 'pane_GoogleSatellite_0',
+            opacity: 1.0,
+            attribution: '<a href="https://www.google.at/permissions/geoguidelines/attr-guide.html">Map data ©2015 Google</a>',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_GoogleSatellite_0;
+        map.addLayer(layer_GoogleSatellite_0);
+        map.createPane('pane_OSMStandard_1');
+        map.getPane('pane_OSMStandard_1').style.zIndex = 401;
+        var layer_OSMStandard_1 = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            pane: 'pane_OSMStandard_1',
+            opacity: 1.0,
+            attribution: '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors, CC-BY-SA</a>',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 19
+        });
+        layer_OSMStandard_1;
+        map.addLayer(layer_OSMStandard_1);
+        function pop_LocalidadesdoRioGrande_2(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['_uid_'] !== null ? autolinker.link(String(feature.properties['_uid_']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['objectid'] !== null ? autolinker.link(String(feature.properties['objectid']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['tipo'] !== null ? autolinker.link(String(feature.properties['tipo']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['nome_zona'] !== null ? autolinker.link(String(feature.properties['nome_zona']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['zona'] !== null ? autolinker.link(String(feature.properties['zona']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['localidade'] !== null ? autolinker.link(String(feature.properties['localidade']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['area_km'] !== null ? autolinker.link(String(feature.properties['area_km']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['pop2010'] !== null ? autolinker.link(String(feature.properties['pop2010']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['desc_2022'] !== null ? autolinker.link(String(feature.properties['desc_2022']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['abando2022'] !== null ? autolinker.link(String(feature.properties['abando2022']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['homici2022'] !== null ? autolinker.link(String(feature.properties['homici2022']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NUMPOINTS'] !== null ? autolinker.link(String(feature.properties['NUMPOINTS']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_LocalidadesdoRioGrande_2_0() {
+            return {
+                pane: 'pane_LocalidadesdoRioGrande_2',
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,217,217,0.0)',
+                interactive: false,
+            }
+        }
+        map.createPane('pane_LocalidadesdoRioGrande_2');
+        map.getPane('pane_LocalidadesdoRioGrande_2').style.zIndex = 402;
+        map.getPane('pane_LocalidadesdoRioGrande_2').style['mix-blend-mode'] = 'normal';
+        var layer_LocalidadesdoRioGrande_2 = new L.geoJson(json_LocalidadesdoRioGrande_2, {
+            attribution: '',
+            interactive: false,
+            dataVar: 'json_LocalidadesdoRioGrande_2',
+            layerName: 'layer_LocalidadesdoRioGrande_2',
+            pane: 'pane_LocalidadesdoRioGrande_2',
+            onEachFeature: pop_LocalidadesdoRioGrande_2,
+            style: style_LocalidadesdoRioGrande_2_0,
+        });
+        bounds_group.addLayer(layer_LocalidadesdoRioGrande_2);
+        map.addLayer(layer_LocalidadesdoRioGrande_2);
+        function pop_Servios_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Nome</th>\
+                        <td>' + (feature.properties['Nome'] !== null ? autolinker.link(String(feature.properties['Nome']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Endereço</th>\
+                        <td>' + (feature.properties['Endereco'] !== null ? autolinker.link(String(feature.properties['Endereco']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Contato</th>\
+                        <td>' + (feature.properties['Contato'] !== null ? autolinker.link(String(feature.properties['Contato']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Categoria do Serviço</th>\
+                        <td>' + (feature.properties['Categoria_servico'] !== null ? autolinker.link(String(feature.properties['Categoria_servico']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Servios_3_0(feature) {
+            switch(String(feature.properties['Categoria_servico'])) {
+                case 'Antiquário':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(48,18,59,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Brechó':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(242,32,216,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Costura':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(67,144,254,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Eletricista':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(61,127,67,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ferragem':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(42,239,161,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Hospedagem':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(126,255,85,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Imobiliária':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(112,0,141,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Locação de Equipamentos':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(242,201,58,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Loja de Tecidos':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,143,41,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Marcenaria':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,33,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Sebo':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(189,32,2,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Transporte':
+                    return {
+                pane: 'pane_Servios_3',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(122,4,3,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_Servios_3');
+        map.getPane('pane_Servios_3').style.zIndex = 403;
+        map.getPane('pane_Servios_3').style['mix-blend-mode'] = 'normal';
+        var layer_Servios_3 = new L.geoJson(json_Servios_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Servios_3',
+            layerName: 'layer_Servios_3',
+            pane: 'pane_Servios_3',
+            onEachFeature: pop_Servios_3,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_Servios_3_0(feature));
+            },
+        });
+        bounds_group.addLayer(layer_Servios_3);
+        map.addLayer(layer_Servios_3);
+        function pop_Locaes_4(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Nome</th>\
+                        <td>' + (feature.properties['lugar'] !== null ? autolinker.link(String(feature.properties['lugar']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Endereço</th>\
+                        <td>' + (feature.properties['endereco'] !== null ? autolinker.link(String(feature.properties['endereco']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Horário de Funcionamento</th>\
+                        <td>' + (feature.properties['horario_funcionamento'] !== null ? autolinker.link(String(feature.properties['horario_funcionamento']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Descrição</th>\
+                        <td>' + (feature.properties['descricao'] !== null ? autolinker.link(String(feature.properties['descricao']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Categoria da Locação</th>\
+                        <td>' + (feature.properties['categoria_locacao'] !== null ? autolinker.link(String(feature.properties['categoria_locacao']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td class="visible-with-data" id="foto1" colspan="2"><strong>Foto 1</strong><br />' + (feature.properties['foto1'] !== null ? '<img src="images/' + String(feature.properties['foto1']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td class="visible-with-data" id="foto2" colspan="2"><strong>Foto 2</strong><br />' + (feature.properties['foto2'] !== null ? '<img src="images/' + String(feature.properties['foto2']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td class="visible-with-data" id="foto3" colspan="2"><strong>Foto 3</strong><br />' + (feature.properties['foto3'] !== null ? '<img src="images/' + String(feature.properties['foto3']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td class="visible-with-data" id="foto4" colspan="2"><strong>Foto 4</strong><br />' + (feature.properties['foto4'] !== null ? '<img src="images/' + String(feature.properties['foto4']).replace(/[\\/:]/g, '_').trim().replace(/'/g, '\'').replace(/"/g, '&quot;') + '">' : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Locaes_4_0(feature) {
+            switch(String(feature.properties['categoria_locacao'])) {
+                case 'Arena ou Ginásio':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(187,0,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Biblioteca':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(65,75,240,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Centro Empresarial':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(70,163,221,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Centro Religioso':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(87,237,214,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Cinema ou Teatro':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(47,244,99,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Clube Náutico':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(215,224,69,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Construção Histórica':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(250,230,10,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ilha':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,199,61,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Instituição de Ensino':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,107,25,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Museu':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(166,12,0,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Orla':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,23,22,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Parque ou Área Verde':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(63,160,74,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Porto ou Estaleiro Naval':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,47,136,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Praia ou Molhe':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,168,243,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Rua ou Avenida':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(231,174,255,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Ruína':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,119,115,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Sebo ou Banca de Revista':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(71,102,36,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Unidade de Conservação':
+                    return {
+                pane: 'pane_Locaes_4',
+                shape: 'square',
+                radius: 4.8,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(180,255,185,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_Locaes_4');
+        map.getPane('pane_Locaes_4').style.zIndex = 404;
+        map.getPane('pane_Locaes_4').style['mix-blend-mode'] = 'normal';
+        var layer_Locaes_4 = new L.geoJson(json_Locaes_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Locaes_4',
+            layerName: 'layer_Locaes_4',
+            pane: 'pane_Locaes_4',
+            onEachFeature: pop_Locaes_4,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.shapeMarker(latlng, style_Locaes_4_0(feature));
+            },
+        });
+        bounds_group.addLayer(layer_Locaes_4);
+        map.addLayer(layer_Locaes_4);
+        var overlaysTree = [
+            {label: 'Locações<br /><table><tr><td style="text-align: center;"><img src="legend/Locaes_4_ArenaouGinásio0.png" /></td><td>Arena ou Ginásio</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_Biblioteca1.png" /></td><td>Biblioteca</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_CentroEmpresarial2.png" /></td><td>Centro Empresarial</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_CentroReligioso3.png" /></td><td>Centro Religioso</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_CinemaouTeatro4.png" /></td><td>Cinema ou Teatro</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_ClubeNáutico5.png" /></td><td>Clube Náutico</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_ConstruçãoHistórica6.png" /></td><td>Construção Histórica</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_Ilha7.png" /></td><td>Ilha</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_InstituiçãodeEnsino8.png" /></td><td>Instituição de Ensino</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_Museu9.png" /></td><td>Museu</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_Orla10.png" /></td><td>Orla</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_ParqueouÁreaVerde11.png" /></td><td>Parque ou Área Verde</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_PortoouEstaleiroNaval12.png" /></td><td>Porto ou Estaleiro Naval</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_PraiaouMolhe13.png" /></td><td>Praia ou Molhe</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_RuaouAvenida14.png" /></td><td>Rua ou Avenida</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_Ruína15.png" /></td><td>Ruína</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_SeboouBancadeRevista16.png" /></td><td>Sebo ou Banca de Revista</td></tr><tr><td style="text-align: center;"><img src="legend/Locaes_4_UnidadedeConservação17.png" /></td><td>Unidade de Conservação</td></tr></table>', layer: layer_Locaes_4},
+            {label: 'Serviços<br /><table><tr><td style="text-align: center;"><img src="legend/Servios_3_Antiquário0.png" /></td><td>Antiquário</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Brechó1.png" /></td><td>Brechó</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Costura2.png" /></td><td>Costura</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Eletricista3.png" /></td><td>Eletricista</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Ferragem4.png" /></td><td>Ferragem</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Hospedagem5.png" /></td><td>Hospedagem</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Imobiliária6.png" /></td><td>Imobiliária</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_LocaçãodeEquipamentos7.png" /></td><td>Locação de Equipamentos</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_LojadeTecidos8.png" /></td><td>Loja de Tecidos</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Marcenaria9.png" /></td><td>Marcenaria</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Sebo10.png" /></td><td>Sebo</td></tr><tr><td style="text-align: center;"><img src="legend/Servios_3_Transporte11.png" /></td><td>Transporte</td></tr></table>', layer: layer_Servios_3},
+            {label: '<img src="legend/LocalidadesdoRioGrande_2.png" /> Localidades do Rio Grande', layer: layer_LocalidadesdoRioGrande_2},
+            {label: "OSM Standard", layer: layer_OSMStandard_1, radioGroup: 'bm' },
+            {label: "Google Satellite", layer: layer_GoogleSatellite_0, radioGroup: 'bm' },]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: false, 
+        });
+        lay.addTo(map);
+		document.addEventListener("DOMContentLoaded", function() {
+            // set new Layers List height which considers toggle icon
+            function newLayersListHeight() {
+                var layerScrollbarElement = document.querySelector('.leaflet-control-layers-scrollbar');
+                if (layerScrollbarElement) {
+                    var layersListElement = document.querySelector('.leaflet-control-layers-list');
+                    var originalHeight = layersListElement.style.height 
+                        || window.getComputedStyle(layersListElement).height;
+                    var newHeight = parseFloat(originalHeight) - 50;
+                    layersListElement.style.height = newHeight + 'px';
+                }
+            }
+            var isLayersListExpanded = true;
+            var controlLayersElement = document.querySelector('.leaflet-control-layers');
+            var toggleLayerControl = document.querySelector('.leaflet-control-layers-toggle');
+            // toggle Collapsed/Expanded and apply new Layers List height
+            toggleLayerControl.addEventListener('click', function() {
+                if (isLayersListExpanded) {
+                    controlLayersElement.classList.remove('leaflet-control-layers-expanded');
+                } else {
+                    controlLayersElement.classList.add('leaflet-control-layers-expanded');
+                }
+                isLayersListExpanded = !isLayersListExpanded;
+                newLayersListHeight()
+            });	
+			// apply new Layers List height if toggle layerstree
+			if (controlLayersElement) {
+				controlLayersElement.addEventListener('click', function(event) {
+					var toggleLayerHeaderPointer = event.target.closest('.leaflet-layerstree-header-pointer span');
+					if (toggleLayerHeaderPointer) {
+						newLayersListHeight();
+					}
+				});
+			}
+            // Collapsed/Expanded at Start to apply new height
+            setTimeout(function() {
+                toggleLayerControl.click();
+            }, 10);
+            setTimeout(function() {
+                toggleLayerControl.click();
+            }, 10);
+            // Collapsed touch/small screen
+            var isSmallScreen = window.innerWidth < 650;
+            if (isSmallScreen) {
+                setTimeout(function() {
+                    controlLayersElement.classList.remove('leaflet-control-layers-expanded');
+                    isLayersListExpanded = !isLayersListExpanded;
+                }, 500);
+            }  
+        });       
+        setBounds();
+        var mapDiv = document.getElementById('map');
+        var row = document.createElement('div');
+        row.className="row";
+        row.id="all";
+        row.style.height = "100%";
+        var col1 = document.createElement('div');
+        col1.className="col9";
+        col1.id = "mapWindow";
+        col1.style.height = "99%";
+        col1.style.width = "80%";
+        col1.style.display = "inline-block";
+        var col2 = document.createElement('div');
+        col2.className="col3";
+        col2.id = "menu";
+        col2.style.display = "inline-block";
+        mapDiv.parentNode.insertBefore(row, mapDiv);
+        document.getElementById("all").appendChild(col1);
+        document.getElementById("all").appendChild(col2);
+        col1.appendChild(mapDiv)
+        var Filters = {"Categoria_servico": "str","categoria_locacao": "str"};
+        function filterFunc() {
+          map.eachLayer(function(lyr){
+          if ("options" in lyr && "dataVar" in lyr["options"]){
+            features = this[lyr["options"]["dataVar"]].features.slice(0);
+            try{
+              for (key in Filters){
+                keyS = key.replace(/[^a-zA-Z0-9_]/g, "")
+                if (Filters[key] == "str" || Filters[key] == "bool"){
+                  var selection = [];
+                  var options = document.getElementById("sel_" + keyS).options
+                  for (var i=0; i < options.length; i++) {
+                    if (options[i].selected) selection.push(options[i].value);
+                  }
+                    try{
+                      if (key in features[0].properties){
+                        for (i = features.length - 1;
+                          i >= 0; --i){
+                          if (selection.indexOf(
+                          features[i].properties[key])<0
+                          && selection.length>0) {
+                          features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                  }
+                }
+                if (Filters[key] == "int"){
+                  sliderVals =  document.getElementById(
+                    "div_" + keyS).noUiSlider.get();
+                  try{
+                    if (key in features[0].properties){
+                    for (i = features.length - 1; i >= 0; --i){
+                      if (parseInt(features[i].properties[key])
+                          < sliderVals[0]
+                          || parseInt(features[i].properties[key])
+                          > sliderVals[1]){
+                            features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                    }
+                  }
+                if (Filters[key] == "real"){
+                  sliderVals =  document.getElementById(
+                    "div_" + keyS).noUiSlider.get();
+                  try{
+                    if (key in features[0].properties){
+                    for (i = features.length - 1; i >= 0; --i){
+                      if (features[i].properties[key]
+                          < sliderVals[0]
+                          || features[i].properties[key]
+                          > sliderVals[1]){
+                            features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                    }
+                  }
+                if (Filters[key] == "date"
+                  || Filters[key] == "datetime"
+                  || Filters[key] == "time"){
+                  try{
+                    if (key in features[0].properties){
+                      HTMLkey = key.replace(/[&\/\\#,+()$~%.'":*?<>{} ]/g, '');
+                      startdate = document.getElementById("dat_" +
+                        HTMLkey + "_date1").value.replace(" ", "T");
+                      enddate = document.getElementById("dat_" +
+                        HTMLkey + "_date2").value.replace(" ", "T");
+                      for (i = features.length - 1; i >= 0; --i){
+                        if (features[i].properties[key] < startdate
+                          || features[i].properties[key] > enddate){
+                          features.splice(i,1);
+                        }
+                      }
+                    }
+                  } catch(err){
+                  }
+                }
+              }
+            } catch(err){
+            }
+          this[lyr["options"]["layerName"]].clearLayers();
+          this[lyr["options"]["layerName"]].addData(features);
+          }
+          })
+        }
+            document.getElementById("menu").appendChild(
+                document.createElement("div"));
+            var div_Categoria_servico = document.createElement('div');
+            div_Categoria_servico.id = "div_Categoria_servico";
+            div_Categoria_servico.className= "filterselect";
+            document.getElementById("menu").appendChild(div_Categoria_servico);
+            sel_Categoria_servico = document.createElement('select');
+            sel_Categoria_servico.multiple = true;
+            sel_Categoria_servico.size = 10;
+            sel_Categoria_servico.id = "sel_Categoria_servico";
+            var Categoria_servico_options_str = "<option value='' unselected></option>";
+            sel_Categoria_servico.onchange = function(){filterFunc()};
+            Categoria_servico_options_str  += '<option value="Antiquário">Antiquário</option>';
+            Categoria_servico_options_str  += '<option value="Brechó">Brechó</option>';
+            Categoria_servico_options_str  += '<option value="Costura">Costura</option>';
+            Categoria_servico_options_str  += '<option value="Eletricista">Eletricista</option>';
+            Categoria_servico_options_str  += '<option value="Ferragem">Ferragem</option>';
+            Categoria_servico_options_str  += '<option value="Hospedagem">Hospedagem</option>';
+            Categoria_servico_options_str  += '<option value="Imobiliária">Imobiliária</option>';
+            Categoria_servico_options_str  += '<option value="Locação de Equipamentos">Locação de Equipamentos</option>';
+            Categoria_servico_options_str  += '<option value="Loja de Tecidos">Loja de Tecidos</option>';
+            Categoria_servico_options_str  += '<option value="Marcenaria">Marcenaria</option>';
+            Categoria_servico_options_str  += '<option value="Sebo">Sebo</option>';
+            Categoria_servico_options_str  += '<option value="Transporte">Transporte</option>';
+            sel_Categoria_servico.innerHTML = Categoria_servico_options_str;
+            div_Categoria_servico.appendChild(sel_Categoria_servico);
+            var lab_Categoria_servico = document.createElement('div');
+            lab_Categoria_servico.innerHTML = 'Categoria_servico';
+            lab_Categoria_servico.className = 'filterlabel';
+            div_Categoria_servico.appendChild(lab_Categoria_servico);
+            var reset_Categoria_servico = document.createElement('div');
+            reset_Categoria_servico.innerHTML = 'clear filter';
+            reset_Categoria_servico.className = 'filterlabel';
+            reset_Categoria_servico.onclick = function() {
+                var options = document.getElementById("sel_Categoria_servico").options;
+                for (var i=0; i < options.length; i++) {
+                    options[i].selected = false;
+                }
+                filterFunc();
+            };
+            div_Categoria_servico.appendChild(reset_Categoria_servico);
+            document.getElementById("menu").appendChild(
+                document.createElement("div"));
+            var div_categoria_locacao = document.createElement('div');
+            div_categoria_locacao.id = "div_categoria_locacao";
+            div_categoria_locacao.className= "filterselect";
+            document.getElementById("menu").appendChild(div_categoria_locacao);
+            sel_categoria_locacao = document.createElement('select');
+            sel_categoria_locacao.multiple = true;
+            sel_categoria_locacao.size = 10;
+            sel_categoria_locacao.id = "sel_categoria_locacao";
+            var categoria_locacao_options_str = "<option value='' unselected></option>";
+            sel_categoria_locacao.onchange = function(){filterFunc()};
+            categoria_locacao_options_str  += '<option value="Arena ou Ginásio">Arena ou Ginásio</option>';
+            categoria_locacao_options_str  += '<option value="Biblioteca">Biblioteca</option>';
+            categoria_locacao_options_str  += '<option value="Centro Empresarial">Centro Empresarial</option>';
+            categoria_locacao_options_str  += '<option value="Centro Religioso">Centro Religioso</option>';
+            categoria_locacao_options_str  += '<option value="Cinema ou Teatro">Cinema ou Teatro</option>';
+            categoria_locacao_options_str  += '<option value="Clube Náutico">Clube Náutico</option>';
+            categoria_locacao_options_str  += '<option value="Construção Histórica">Construção Histórica</option>';
+            categoria_locacao_options_str  += '<option value="Ilha">Ilha</option>';
+            categoria_locacao_options_str  += '<option value="Instituição de Ensino">Instituição de Ensino</option>';
+            categoria_locacao_options_str  += '<option value="Museu">Museu</option>';
+            categoria_locacao_options_str  += '<option value="Orla">Orla</option>';
+            categoria_locacao_options_str  += '<option value="Parque ou Área Verde">Parque ou Área Verde</option>';
+            categoria_locacao_options_str  += '<option value="Porto ou Estaleiro Naval">Porto ou Estaleiro Naval</option>';
+            categoria_locacao_options_str  += '<option value="Praia ou Molhe">Praia ou Molhe</option>';
+            categoria_locacao_options_str  += '<option value="Rua ou Avenida">Rua ou Avenida</option>';
+            categoria_locacao_options_str  += '<option value="Ruína">Ruína</option>';
+            categoria_locacao_options_str  += '<option value="Sebo ou Banca de Revista">Sebo ou Banca de Revista</option>';
+            categoria_locacao_options_str  += '<option value="Unidade de Conservação">Unidade de Conservação</option>';
+            sel_categoria_locacao.innerHTML = categoria_locacao_options_str;
+            div_categoria_locacao.appendChild(sel_categoria_locacao);
+            var lab_categoria_locacao = document.createElement('div');
+            lab_categoria_locacao.innerHTML = 'categoria_locacao';
+            lab_categoria_locacao.className = 'filterlabel';
+            div_categoria_locacao.appendChild(lab_categoria_locacao);
+            var reset_categoria_locacao = document.createElement('div');
+            reset_categoria_locacao.innerHTML = 'clear filter';
+            reset_categoria_locacao.className = 'filterlabel';
+            reset_categoria_locacao.onclick = function() {
+                var options = document.getElementById("sel_categoria_locacao").options;
+                for (var i=0; i < options.length; i++) {
+                    options[i].selected = false;
+                }
+                filterFunc();
+            };
+            div_categoria_locacao.appendChild(reset_categoria_locacao);
+        </script>        
+    </body>
+</html>
